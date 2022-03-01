@@ -1,0 +1,11 @@
+{
+  "name": "cordova-plugin-mediapipepose",
+  "version": "1.0.0",
+  "cordova": {
+    "id": "cordova-plugin-mediapipepose",
+    "platforms": [
+      "android"
+    ]
+  },
+  "description": "MediaPipe Pose Plugin"
+}
