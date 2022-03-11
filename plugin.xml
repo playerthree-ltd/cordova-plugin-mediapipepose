@@ -2,7 +2,7 @@
 
 <plugin xmlns="http://apache.org/cordova/ns/plugins/1.0"
         id="cordova-plugin-mediapipepose"
-        version="1.0.0">
+        version="2.0.0">
     <name>MediaPipe Pose Tracking Cordova Plugin</name>
     <description>Plugin for MediaPipe pose tracking</description>
     <license>MIT</license>
@@ -10,7 +10,6 @@
 
     <!-- android -->
     <platform name="android">
-
         <framework src="com.google.protobuf:protobuf-java:3.10.0"/>
         <framework src="com.google.flogger:flogger:0.7.4"/>
         <framework src="com.google.flogger:flogger-system-backend:0.7.4"/>
@@ -28,11 +27,10 @@
 
         <source-file src="src/android/libs/arm64-v8a/libmediapipe_jni.so" target-dir="app/src/main/jniLibs/arm64-v8a/"/>
         <source-file src="src/android/libs/arm64-v8a/libopencv_java3.so" target-dir="app/src/main/jniLibs/arm64-v8a/"/>
+        <source-file src="src/android/libs/arm64-v8a/libtensorflowlite_jni.so" target-dir="app/src/main/jniLibs/arm64-v8a/"/>
 
         <source-file src="src/android/libs/armeabi-v7a/libmediapipe_jni.so" target-dir="app/src/main/jniLibs/armeabi-v7a/"/>
         <source-file src="src/android/libs/armeabi-v7a/libopencv_java3.so" target-dir="app/src/main/jniLibs/armeabi-v7a/"/>
-
-        <source-file src="src/android/libs/arm64-v8a/libtensorflowlite_jni.so" target-dir="app/src/main/jniLibs/arm64-v8a/"/>
         <source-file src="src/android/libs/armeabi-v7a/libtensorflowlite_jni.so" target-dir="app/src/main/jniLibs/armeabi-v7a/"/>
 
         <framework src="src/android/pose.gradle" custom="true" type="gradleReference"/>
@@ -55,11 +53,10 @@
         <source-file src="src/android/res/layout/activity_main.xml" target-dir="res/layout"/>
         <source-file src="src/android/com/mediapipe/Pose.java" target-dir="src/com/mediapipe/"/>
         <source-file src="src/android/com/mediapipe/LabelListenerCallback.java" target-dir="src/com/mediapipe/"/>
-        <source-file src="src/android/com/mediapipe/VideoListenerCallback.java" target-dir="src/com/mediapipe/"/>
 
         <hook type="before_plugin_install" src="hooks/editPackageName.js"/>
         <hook type="before_prepare" src="hooks/beforeBuild.js"/>
         <hook type="before_prepare" src="hooks/copyGradle.js"/>
-
+        <hook type="before_prepare" src="hooks/copyValues.js"/>
     </platform>
 </plugin>

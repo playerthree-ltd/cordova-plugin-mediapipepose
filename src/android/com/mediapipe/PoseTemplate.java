@@ -18,9 +18,9 @@ import android.app.Activity;
 import android.content.Context;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
+import android.content.res.Resources;
 import android.graphics.SurfaceTexture;
 
-import android.os.Handler;
 import android.util.Base64;
 import android.util.Log;
 import android.util.Size;
@@ -62,7 +62,7 @@ import org.tensorflow.lite.support.tensorbuffer.TensorBuffer;
 import <change_me_8IAnXxPstw>.R;
 import <change_me_8IAnXxPstw>.ml.Model;
 
-public class Pose extends CordovaPlugin implements Runnable {
+public class Pose extends CordovaPlugin {
     private static final String TAG = "Pose";
     private static final String OUTPUT_LANDMARKS_STREAM_NAME = "pose_landmarks";
 
@@ -129,26 +129,20 @@ public class Pose extends CordovaPlugin implements Runnable {
     private TensorProcessor probabilityProcessor;
 
     private LabelListenerCallback labelCallBack = null;
-    private VideoListenerCallback videoCallBack = null;
 
     private Bitmap bitmap;
 
-    private Thread videoThread;
-    private boolean surfaceReady = false;
-    private boolean threadActive = false;
-
-    /**
-     * Time per frame for 60 FPS
-     */
-    private static final int MAX_FRAME_TIME = (int) (1000.0 / 60.0);
+    private Size previewFrame = null;
 
     public void initialize(CordovaInterface cordova, CordovaWebView webView) {
         super.initialize(cordova, webView);
 
-        ProtoUtil.registerTypeName(NormalizedLandmarkList.class, "mediapipe.NormalizedLandmarkList");
-
         cordovaActivity = this.cordova.getActivity();
         Context context = cordovaActivity.getApplicationContext();
+
+        cordovaActivity.setContentView(R.layout.activity_main);
+
+        ProtoUtil.registerTypeName(NormalizedLandmarkList.class, "mediapipe.NormalizedLandmarkList");
 
         try {
             applicationInfo = context.getPackageManager().getApplicationInfo(context.getPackageName(), PackageManager.GET_META_DATA);
@@ -156,7 +150,11 @@ public class Pose extends CordovaPlugin implements Runnable {
             e.printStackTrace();
         }
 
-        cordovaActivity.setContentView(R.layout.activity_main);
+        try {
+            previewFrame = new Size(applicationInfo.metaData.getInt("previewWidth"), applicationInfo.metaData.getInt("previewHeight"));
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
 
         previewDisplayView = new SurfaceView(context);
         setupPreviewDisplayView();
@@ -188,12 +186,24 @@ public class Pose extends CordovaPlugin implements Runnable {
             Log.e("tfliteSupport", "Error reading label file", e);
         }
 
+        int[] bufferShape = null;
+        try {
+            Resources res = cordovaActivity.getResources();
+            bufferShape = res.getIntArray(R.array.bufferShape);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
         // create tf model
         try {
             model = Model.newInstance(context);
 
             // Creates inputs for reference.
-            inputFeature0 = TensorBuffer.createFixedSize(new int[]{1, 33, 4}, DataType.FLOAT32);
+            if (bufferShape != null) {
+                inputFeature0 = TensorBuffer.createFixedSize(bufferShape, DataType.FLOAT32);
+            } else {
+                inputFeature0 = TensorBuffer.createFixedSize(new int[]{1, 33, 4}, DataType.FLOAT32);
+            }
         } catch (IOException e) {
             // TODO Handle the exception
             e.printStackTrace();
@@ -204,8 +214,7 @@ public class Pose extends CordovaPlugin implements Runnable {
 
         processor.addPacketCallback(
                 OUTPUT_LANDMARKS_STREAM_NAME,
-                (packet) -> onPoseResult(packet));
-
+                this::onPoseResult);
     }
 
     /**
@@ -235,98 +244,43 @@ public class Pose extends CordovaPlugin implements Runnable {
 
         // Hide preview display until we re-open the camera again.
         previewDisplayView.setVisibility(View.GONE);
-
-        stopVideoThread();
-    }
-
-    @Override
-    public void run() {
-
-        long frameStartTime;
-        long frameTime;
-
-        /*
-         * In order to work reliable on Nexus 7, we place ~500ms delay at the start of drawing thread
-         * (AOSP - Issue 58385)
-         */
-        if (android.os.Build.BRAND.equalsIgnoreCase("google") && android.os.Build.MANUFACTURER.equalsIgnoreCase("asus") && android.os.Build.MODEL.equalsIgnoreCase("Nexus 7")) {
-            //Log.w(LOGTAG, "Sleep 500ms (Device: Asus Nexus 7)");
-            try {
-                Thread.sleep(500);
-            } catch (InterruptedException ignored) {
-            }
-        }
-        try {
-            while (threadActive) {
-
-                frameStartTime = System.nanoTime();
-
-                // calculate the time required to draw the frame in ms
-                frameTime = (System.nanoTime() - frameStartTime) / 1000000;
-
-                if (frameTime < MAX_FRAME_TIME) // faster than the max fps - limit the FPS
-                {
-                    try {
-                        Thread.sleep(MAX_FRAME_TIME - frameTime);
-                    } catch (InterruptedException e) {
-                        // ignore
-                    }
-                }
-                if (videoCallBack != null) {
-                    processViewUpdate(previewDisplayView);
-                }
-            }
-        } catch (Exception e) {
-            //Log.w(LOGTAG, "Exception while locking/unlocking");
-        }
-
     }
 
     public boolean execute(String action, JSONArray args, final CallbackContext callbackContext) throws JSONException {
-        if (action.equals("echo")) {
-            String phrase = args.getString(0);
-            // Echo back the first argument
-            Log.d(TAG, phrase);
-        } else if (action.equals("getLandmarks")) {
-            if (poseLandmarks != null) {
-                final PluginResult result = new PluginResult(PluginResult.Status.OK, (getPoseLandmarks(this.poseLandmarks).toString()));
+        switch (action) {
+            case "getLandmarks":
+                if (poseLandmarks != null) {
+                    cordova.getThreadPool().execute((Runnable) () -> {
+                        final PluginResult result = new PluginResult(PluginResult.Status.OK, (getPoseLandmarks(this.poseLandmarks).toString()));
+                        callbackContext.sendPluginResult(result);
+                    });
+                }
+                break;
+            case "getLandmarksDebugString":
+                final PluginResult result = new PluginResult(PluginResult.Status.OK, (getPoseLandmarksDebugString(poseLandmarks)));
                 callbackContext.sendPluginResult(result);
-            }
-        } else if (action.equals("getLandmarksDebugString")) {
-            final PluginResult result = new PluginResult(PluginResult.Status.OK, (getPoseLandmarksDebugString(poseLandmarks)));
-            callbackContext.sendPluginResult(result);
-        } else if (action.equals("setLabelCallback")) {
-            setLabelListener(new LabelListenerCallback() {
-                @Override
-                public void onSuccess(String label) {
-                    final PluginResult result = new PluginResult(PluginResult.Status.OK, (label));
-                    result.setKeepCallback(true);
-                    callbackContext.sendPluginResult(result);
-                }
+                break;
+            case "getVideoFrame":
+                cordova.getThreadPool().execute((Runnable) () -> processViewUpdate(previewDisplayView, callbackContext));
+                break;
+            case "setLabelCallback":
+                setLabelListener(new LabelListenerCallback() {
+                    @Override
+                    public void onSuccess(String label) {
+                        final PluginResult result = new PluginResult(PluginResult.Status.OK, (label));
+                        result.setKeepCallback(true);
+                        callbackContext.sendPluginResult(result);
+                    }
 
-                @Override
-                public void onFailure(Throwable throwableError) {
-                    final PluginResult result = new PluginResult(PluginResult.Status.OK, (throwableError.toString()));
-                    callbackContext.sendPluginResult(result);
-                }
-            });
-        } else if (action.equals("setVideoCallback")) {
-            setVideoListener(new VideoListenerCallback() {
-                @Override
-                public void onSuccess(String videoData) {
-                    final PluginResult result = new PluginResult(PluginResult.Status.OK, (videoData));
-                    result.setKeepCallback(true);
-                    callbackContext.sendPluginResult(result);
-                }
-
-                @Override
-                public void onFailure(Throwable throwableError) {
-                    final PluginResult result = new PluginResult(PluginResult.Status.OK, (throwableError.toString()));
-                    result.setKeepCallback(true);
-                    callbackContext.sendPluginResult(result);
-                }
-            });
+                    @Override
+                    public void onFailure(Throwable throwableError) {
+                        final PluginResult result = new PluginResult(PluginResult.Status.OK, (throwableError.toString()));
+                        callbackContext.sendPluginResult(result);
+                    }
+                });
+                break;
         }
+
         return true;
     }
 
@@ -351,47 +305,38 @@ public class Pose extends CordovaPlugin implements Runnable {
     }
 
     private static String getPoseLandmarksDebugString(NormalizedLandmarkList poseLandmarks) {
-        String poseLandmarkStr = "Pose landmarks: " + poseLandmarks.getLandmarkCount() + "\n";
+        StringBuilder poseLandmarkStr = new StringBuilder("Pose landmarks: " + poseLandmarks.getLandmarkCount() + "\n");
         int landmarkIndex = 0;
         for (NormalizedLandmark landmark : poseLandmarks.getLandmarkList()) {
-            poseLandmarkStr +=
-                    "\tLandmark ["
-                            + landmarkIndex
-                            + "]: ("
-                            + landmark.getX()
-                            + ", "
-                            + landmark.getY()
-                            + ", "
-                            + landmark.getZ()
-                            + ")\n";
+            poseLandmarkStr.append("\tLandmark [").append(landmarkIndex).append("]: (").append(landmark.getX()).append(", ").append(landmark.getY()).append(", ").append(landmark.getZ()).append(")\n");
             ++landmarkIndex;
         }
-        return poseLandmarkStr;
+        return poseLandmarkStr.toString();
     }
 
     public void setLabelListener(LabelListenerCallback callBack) {
         labelCallBack = callBack;
     }
 
-    public void setVideoListener(VideoListenerCallback callBack) {
-        videoCallBack = callBack;
-    }
-
-    private void processViewUpdate(SurfaceView view) {
+    private void processViewUpdate(SurfaceView view, CallbackContext callbackContext) {
         PixelCopy.request(view,
                 bitmap,
-                (PixelCopy.OnPixelCopyFinishedListener) copyResult -> {
-                    // Log.d(TAG, "copy result : " + copyResult);
+                copyResult -> {
                     if (copyResult == PixelCopy.SUCCESS) {
                         ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
                         bitmap.compress(Bitmap.CompressFormat.PNG, 100, outputStream);
                         byte[] byteArray = outputStream.toByteArray();
                         String data = Base64.encodeToString(byteArray, Base64.DEFAULT);
-                        videoCallBack.onSuccess(data);
+                        final PluginResult result = new PluginResult(PluginResult.Status.OK, ("data:image/png;base64," + data));
+                        callbackContext.sendPluginResult(result);
                     } else {
                         // don't send error if we are just waiting for the surface to be ready
-                        if (copyResult != PixelCopy.ERROR_SOURCE_NO_DATA){
-                            videoCallBack.onFailure(new Throwable("failed pixel copy"));
+                        if (copyResult != PixelCopy.ERROR_SOURCE_NO_DATA) {
+                            final PluginResult result = new PluginResult(PluginResult.Status.OK, ("error"));
+                            callbackContext.sendPluginResult(result);
+                        } else {
+                            final PluginResult result = new PluginResult(PluginResult.Status.OK, ("wait"));
+                            callbackContext.sendPluginResult(result);
                         }
                     }
                 },
@@ -399,40 +344,8 @@ public class Pose extends CordovaPlugin implements Runnable {
         );
     }
 
-    /**
-     * Creates a new thread and starts it.
-     */
-    public void startVideoThread() {
-        if (surfaceReady && videoThread == null) {
-            videoThread = new Thread(this, "Draw thread");
-            threadActive = true;
-            videoThread.start();
-        }
-    }
-
-    /**
-     * Stops the drawing thread
-     */
-    public void stopVideoThread() {
-        if (videoThread == null) {
-            //Log.d(LOGTAG, "DrawThread is null");
-            return;
-        }
-        threadActive = false;
-        while (true) {
-            try {
-                //Log.d(LOGTAG, "Request last frame");
-                videoThread.join(5000);
-                break;
-            } catch (Exception e) {
-                //  Log.e(LOGTAG, "Could not join with draw thread");
-            }
-        }
-        videoThread = null;
-    }
-
     protected Size cameraTargetResolution() {
-        return null; // No preference and let the camera (helper) decide.
+        return previewFrame;
     }
 
     //start the camera
@@ -442,10 +355,12 @@ public class Pose extends CordovaPlugin implements Runnable {
         cameraHelper.setOnCameraStartedListener(
                 surfaceTexture -> {
                     onCameraStarted(surfaceTexture);
-                    Size frame = cameraHelper.getFrameSize();
-                    // Log.d(TAG, "width : " + frame.getWidth());
-                    bitmap = Bitmap.createBitmap(frame.getWidth(), frame.getHeight(), Bitmap.Config.ARGB_8888);
-                    previewDisplayView.setVisibility(View.VISIBLE);
+                    if (previewFrame != null) {
+                        bitmap = Bitmap.createBitmap(previewFrame.getWidth(), previewFrame.getHeight(), Bitmap.Config.RGB_565);
+                    } else {
+                        Size frame = cameraHelper.getFrameSize();
+                        bitmap = Bitmap.createBitmap(frame.getWidth(), frame.getHeight(), Bitmap.Config.RGB_565);
+                    }
                 });
 
         CameraHelper.CameraFacing cameraFacing =
@@ -481,13 +396,11 @@ public class Pose extends CordovaPlugin implements Runnable {
     }
 
     private void onPoseResult(Packet packet) {
-        // Log.v(TAG, "Received pose landmarks packet.");
         try {
             poseLandmarks =
                     PacketGetter.getProto(packet, NormalizedLandmarkList.class);
 
             // copy landmark data into array
-            List<LandmarkProto.NormalizedLandmark> landmarkList = poseLandmarks.getLandmarkList();
             int arrIndex = 0;
             for (NormalizedLandmark landmark : poseLandmarks.getLandmarkList()) {
                 inputArray[arrIndex] = landmark.getX();
@@ -511,7 +424,6 @@ public class Pose extends CordovaPlugin implements Runnable {
                     maxEntry = entry;
                 }
             }
-            // Log.d(TAG, "predicted label : " + maxEntry.getKey());
 
             if (labelCallBack != null) {
                 labelCallBack.onSuccess(maxEntry.getKey());
@@ -528,6 +440,7 @@ public class Pose extends CordovaPlugin implements Runnable {
 
     private void setupPreviewDisplayView() {
         previewDisplayView.setVisibility(View.GONE);
+
         ViewGroup viewGroup = cordovaActivity.findViewById(R.id.preview_display_layout);
         viewGroup.addView(previewDisplayView);
 
@@ -538,8 +451,7 @@ public class Pose extends CordovaPlugin implements Runnable {
                             @Override
                             public void surfaceCreated(SurfaceHolder holder) {
                                 processor.getVideoSurfaceOutput().setSurface(holder.getSurface());
-                                surfaceReady = true;
-                                startVideoThread();
+                                viewGroup.addView(webView.getView());
                             }
 
                             @Override
@@ -552,6 +464,5 @@ public class Pose extends CordovaPlugin implements Runnable {
                                 processor.getVideoSurfaceOutput().setSurface(null);
                             }
                         });
-
     }
 }
