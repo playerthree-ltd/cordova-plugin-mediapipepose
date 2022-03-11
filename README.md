@@ -59,9 +59,11 @@ Add options to config.xml
         <meta-data android:name="cameraFacingFront" android:value="false"/>
         <meta-data android:name="binaryGraphName" android:value="pose_tracking_gpu.binarypb"/>
         <meta-data android:name="inputVideoStreamName" android:value="input_video"/>
-        <meta-data android:name="outputVideoStreamName" android:value="output_video"/>
+        <meta-data android:name="outputVideoStreamName" android:value="preview_video"/>
         <meta-data android:name="flipFramesVertically" android:value="True"/>
         <meta-data android:name="converterNumBuffers" android:value="2"/>
+        <meta-data android:name="previewWidth" android:value="160" />
+        <meta-data android:name="previewHeight" android:value="90" />
     </config-file>
 </platform>
 ```
