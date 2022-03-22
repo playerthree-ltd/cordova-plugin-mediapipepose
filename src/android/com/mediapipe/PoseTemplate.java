@@ -18,6 +18,7 @@ import android.app.Activity;
 import android.content.Context;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
+import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.graphics.SurfaceTexture;
 
@@ -31,13 +32,11 @@ import android.view.SurfaceHolder;
 import android.view.ViewGroup;
 import android.graphics.Bitmap;
 
-import com.google.mediapipe.formats.proto.LandmarkProto;
 import com.google.mediapipe.formats.proto.LandmarkProto.NormalizedLandmark;
 import com.google.mediapipe.formats.proto.LandmarkProto.NormalizedLandmarkList;
 import com.google.mediapipe.framework.Packet;
 import com.google.mediapipe.framework.PacketGetter;
 import com.google.mediapipe.components.CameraHelper;
-import com.google.mediapipe.components.CameraXPreviewHelper;
 import com.google.mediapipe.components.ExternalTextureConverter;
 import com.google.mediapipe.components.FrameProcessor;
 import com.google.mediapipe.components.PermissionHelper;
@@ -98,7 +97,7 @@ public class Pose extends CordovaPlugin {
     // frames onto a {@link Surface}.
     protected FrameProcessor processor;
     // Handles camera access via the {@link CameraX} Jetpack support library.
-    protected CameraXPreviewHelper cameraHelper;
+    protected CameraPreview cameraHelper;
 
     // {@link SurfaceTexture} where the camera-preview frames can be accessed.
     private SurfaceTexture previewFrameTexture;
@@ -124,7 +123,7 @@ public class Pose extends CordovaPlugin {
 
     private List<String> associatedAxisLabels = null;
 
-    private final float[] inputArray = new float[33 * 4];
+    private final float[] inputArray = new float[33 * 4]; // todo - dont use hard coded buffer size here
 
     private TensorProcessor probabilityProcessor;
 
@@ -152,6 +151,9 @@ public class Pose extends CordovaPlugin {
 
         try {
             previewFrame = new Size(applicationInfo.metaData.getInt("previewWidth"), applicationInfo.metaData.getInt("previewHeight"));
+            if (previewFrame.getWidth() == 0 || previewFrame.getHeight() == 0) {
+                previewFrame = null; // nullify if zero
+            }
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -173,7 +175,6 @@ public class Pose extends CordovaPlugin {
         processor
                 .getVideoSurfaceOutput()
                 .setFlipY(applicationInfo.metaData.getBoolean("flipFramesVertically", FLIP_FRAMES_VERTICALLY));
-
 
         PermissionHelper.checkAndRequestCameraPermissions(cordovaActivity);
 
@@ -261,7 +262,7 @@ public class Pose extends CordovaPlugin {
                 callbackContext.sendPluginResult(result);
                 break;
             case "getVideoFrame":
-                cordova.getThreadPool().execute((Runnable) () -> processViewUpdate(previewDisplayView, callbackContext));
+                cordova.getThreadPool().execute((Runnable) () -> requestVideoFrame(previewDisplayView, callbackContext));
                 break;
             case "setLabelCallback":
                 setLabelListener(new LabelListenerCallback() {
@@ -318,7 +319,7 @@ public class Pose extends CordovaPlugin {
         labelCallBack = callBack;
     }
 
-    private void processViewUpdate(SurfaceView view, CallbackContext callbackContext) {
+    private void requestVideoFrame(SurfaceView view, CallbackContext callbackContext) {
         PixelCopy.request(view,
                 bitmap,
                 copyResult -> {
@@ -350,7 +351,12 @@ public class Pose extends CordovaPlugin {
 
     //start the camera
     public void startCamera() {
-        cameraHelper = new CameraXPreviewHelper();
+        if (cordovaActivity.getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE) {
+            cameraHelper = new CameraPreview(false);
+        } else {
+            cameraHelper = new CameraPreview(true);
+        }
+
         previewFrameTexture = converter.getSurfaceTexture();
         cameraHelper.setOnCameraStartedListener(
                 surfaceTexture -> {

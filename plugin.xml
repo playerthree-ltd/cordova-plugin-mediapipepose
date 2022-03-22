@@ -2,7 +2,7 @@
 
 <plugin xmlns="http://apache.org/cordova/ns/plugins/1.0"
         id="cordova-plugin-mediapipepose"
-        version="2.0.0">
+        version="2.0.2">
     <name>MediaPipe Pose Tracking Cordova Plugin</name>
     <description>Plugin for MediaPipe pose tracking</description>
     <license>MIT</license>
@@ -53,6 +53,7 @@
         <source-file src="src/android/res/layout/activity_main.xml" target-dir="res/layout"/>
         <source-file src="src/android/com/mediapipe/Pose.java" target-dir="src/com/mediapipe/"/>
         <source-file src="src/android/com/mediapipe/LabelListenerCallback.java" target-dir="src/com/mediapipe/"/>
+        <source-file src="src/android/com/mediapipe/CameraPreview.java" target-dir="src/com/mediapipe/"/>
 
         <hook type="before_plugin_install" src="hooks/editPackageName.js"/>
         <hook type="before_prepare" src="hooks/beforeBuild.js"/>
